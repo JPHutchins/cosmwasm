@@ -23,11 +23,22 @@ from camas import Claude, Config, Parallel, Sequential, Task, run_cli
 
 TOOLCHAIN = "1.82.0"  # packages.yml TOOLCHAIN_STABLE
 CARGO = f"cargo +{TOOLCHAIN}"
+COSMWASM_CHECK_VERSION = "3.0.9"  # last released cosmwasm-check before 3.1.0, for the contracts leaf
 
 
 def crate(name: str, *cargo_args: str, env: dict[str, str] | None = None) -> Sequential:
     """A crate's CI job: its cargo steps, in order, under a named task."""
     return Sequential(*(Task(f"{CARGO} {args}", env=env or {}) for args in cargo_args), name=name)
+
+
+def crate_axis(nodes: tuple[Sequential, ...]) -> tuple[str, ...]:
+    """The CI matrix's crate axis. A crate without a name= is a loud error, not a silent CI drop."""
+    names: list[str] = []
+    for node in nodes:
+        if node.name is None:
+            raise ValueError(f"crate needs an explicit name= for the CI matrix axis: {node!r}")
+        names.append(node.name)
+    return tuple(names)
 
 
 fmt = Task(f"{CARGO} fmt", mutates=True)
@@ -164,14 +175,23 @@ CRATES = (
 
 check = Parallel(fmt_check, *CRATES)
 
-ci = Parallel(
-    Task("camas {crate}"),
-    matrix={"crate": tuple(node.name for node in CRATES if node.name is not None)},
-)
+ci = Parallel(Task("camas {crate}"), matrix={"crate": crate_axis(CRATES)})
 
-contracts = Task("./devtools/check-contracts.sh parallel", when="contracts")
+install_cosmwasm_check = Sequential(
+    Task(f"{CARGO} install cosmwasm-check@{COSMWASM_CHECK_VERSION} --locked --force"),
+    Task(("bash", "-c", "mv ~/.cargo/bin/cosmwasm-check ~/.cargo/bin/cosmwasm-check-released")),
+    Task(f"{CARGO} install --path ./packages/check --locked --force"),
+    name="install-cosmwasm-check",
+)
+contracts = Sequential(
+    install_cosmwasm_check,
+    Task("./devtools/check-contracts.sh parallel", when="contracts"),
+)
 update_schemas = Task("./devtools/update-schemas.sh", name="update-schemas", when="contracts")
-cov = Task(f"{CARGO} llvm-cov --workspace --no-cfg-coverage")
+cov = Sequential(
+    Task(f"{CARGO} llvm-cov clean"),
+    Task(f"{CARGO} llvm-cov --workspace --no-cfg-coverage"),
+)
 
 _ = Config(default_task=check, github_task=check, agent=Claude(fix=fmt, check=check))
 
