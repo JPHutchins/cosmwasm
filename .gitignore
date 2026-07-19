@@ -15,6 +15,11 @@ artifacts/
 # Auto-gen
 .cargo-ok
 
+# camas run logs/timing cache and local Claude Code agent integration
+.camas/
+.claude/
+.mcp.json
+
 # Log files (e.g. memory profiling)
 *.log
 dhat-heap.json
