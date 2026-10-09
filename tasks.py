@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["camas>=0.1.27"]
+# dependencies = ["camas>=0.1.30"]
 # ///
 """Project tasks — the single source of truth for local dev and CI.
 
@@ -8,7 +8,7 @@ Run with ``camas`` (or, standalone, ``uv run tasks.py <task>``). This file
 replaces ``Taskfile.yml`` and the per-crate command lists duplicated in
 ``.github/workflows/packages.yml``: the per-crate clippy/build/test commands
 now live once, here, so CI and a local ``camas check`` run exactly the same
-thing. ``camas ci --github-matrix`` emits the crate axis for the GitHub
+thing. ``camas ci --github-matrix=tasks`` emits the crate axis for the GitHub
 Actions matrix, so the crate list also lives once.
 
 Toolchain, targets and feature combinations mirror ``packages.yml`` verbatim
@@ -29,16 +29,6 @@ COSMWASM_CHECK_VERSION = "3.0.9"  # last released cosmwasm-check before 3.1.0, f
 def crate(name: str, *cargo_args: str, env: dict[str, str] | None = None) -> Sequential:
     """A crate's CI job: its cargo steps, in order, under a named task."""
     return Sequential(*(Task(f"{CARGO} {args}", env=env or {}) for args in cargo_args), name=name)
-
-
-def crate_axis(nodes: tuple[Sequential, ...]) -> tuple[str, ...]:
-    """The CI matrix's crate axis. A crate without a name= is a loud error, not a silent CI drop."""
-    names: list[str] = []
-    for node in nodes:
-        if node.name is None:
-            raise ValueError(f"crate needs an explicit name= for the CI matrix axis: {node!r}")
-        names.append(node.name)
-    return tuple(names)
 
 
 fmt = Task(f"{CARGO} fmt", mutates=True)
@@ -175,7 +165,7 @@ CRATES = (
 
 check = Parallel(fmt_check, *CRATES)
 
-ci = Parallel(Task("camas {crate}"), matrix={"crate": crate_axis(CRATES)})
+ci = Parallel(*CRATES)
 
 install_cosmwasm_check = Sequential(
     Task(f"{CARGO} install cosmwasm-check@{COSMWASM_CHECK_VERSION} --locked --force"),
